@@ -1,0 +1,507 @@
+/*
+ * ============================================================
+ *  MP3 Player Simulation - Doubly Linked List
+ *  File: mp3player.c
+ *
+ *  Description:
+ *    Simulates a basic MP3 player using a doubly linked list.
+ *    Songs are loaded from Music.txt and managed via a
+ *    menu-driven interface.
+ * ============================================================
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+/* ============================================================
+ *  Constants
+ * ============================================================ */
+#define MAX_TITLE  256   /* Maximum characters for a song title  */
+#define MAX_ARTIST 256   /* Maximum characters for an artist name */
+#define MUSIC_FILE "Music.txt"
+
+/* ============================================================
+ *  Song Node Structure
+ *
+ *  Each node in the doubly linked list represents one song.
+ *  - title    : name of the song
+ *  - artist   : performing artist
+ *  - duration : length of the song in milliseconds
+ *  - prev     : pointer to the previous node in the list
+ *  - next     : pointer to the next node in the list
+ * ============================================================ */
+typedef struct Song {
+    char title[MAX_TITLE];
+    char artist[MAX_ARTIST];
+    int  duration;          /* duration in milliseconds */
+    struct Song *prev;
+    struct Song *next;
+} Song;
+
+/* ============================================================
+ *  Global Pointers
+ *
+ *  head    - always points to the first song in the playlist
+ *  current - tracks which song is "currently playing"
+ *            (used by Play Next / Play Previous)
+ * ============================================================ */
+Song *head    = NULL;
+Song *current = NULL;
+
+/* ============================================================
+ *  Function Prototypes
+ * ============================================================ */
+void loadPlaylist(void);
+void viewPlaylist(void);
+void playFullPlaylist(void);
+void addSong(void);
+void playFirstSong(void);
+void playNextSong(void);
+void playPreviousSong(void);
+void playRandomSong(void);
+void simulatePlayback(Song *s);
+void freePlaylist(void);
+
+/* ============================================================
+ *  main()
+ *
+ *  Entry point. Loads the playlist from file, then repeatedly
+ *  displays the menu and dispatches to the chosen function
+ *  until the user selects Exit (8).
+ * ============================================================ */
+int main(void) {
+    int choice;
+
+    /* Seed the random number generator once at startup */
+    srand((unsigned int)time(NULL));
+
+    /* Load songs from Music.txt into the linked list */
+    loadPlaylist();
+
+    /* Main menu loop */
+    do {
+        printf("\n========================================\n");
+        printf("          MP3 Player - Main Menu        \n");
+        printf("========================================\n");
+        printf("  1. View Playlist\n");
+        printf("  2. Play Full Playlist\n");
+        printf("  3. Add a Song to the Playlist\n");
+        printf("  4. Play First Song Only\n");
+        printf("  5. Play Next Song\n");
+        printf("  6. Play Previous Song\n");
+        printf("  7. Play a Random Song\n");
+        printf("  8. Exit\n");
+        printf("========================================\n");
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+        /* Consume the trailing newline so later fgets calls work correctly */
+        getchar();
+
+        switch (choice) {
+            case 1: viewPlaylist();      break;
+            case 2: playFullPlaylist();  break;
+            case 3: addSong();           break;
+            case 4: playFirstSong();     break;
+            case 5: playNextSong();      break;
+            case 6: playPreviousSong();  break;
+            case 7: playRandomSong();    break;
+            case 8:
+                printf("\nGoodbye! Exiting MP3 Player...\n");
+                break;
+            default:
+                /* Any value outside 1-8 is invalid */
+                printf("\n[ERROR] Invalid selection. Please choose 1-8.\n");
+                break;
+        }
+    } while (choice != 8);
+
+    /* Release all dynamically allocated memory before exiting */
+    freePlaylist();
+    return 0;
+}
+
+/* ============================================================
+ *  loadPlaylist()
+ *
+ *  Opens Music.txt and reads each comma-separated line into
+ *  a newly malloc'd Song node, then appends it to the end of
+ *  the doubly linked list.
+ *
+ *  File format per line:
+ *    SongTitle,Artist,DurationInMilliseconds
+ * ============================================================ */
+void loadPlaylist(void) {
+    FILE *fp;
+    char  line[600];   /* Buffer large enough for one full line  */
+    char *token;       /* Pointer used for strtok tokenisation   */
+    Song *newNode;     /* Pointer to each newly created node     */
+    Song *tail = NULL; /* Tracks the last node for O(1) append   */
+
+    fp = fopen(MUSIC_FILE, "r");
+    if (fp == NULL) {
+        printf("[WARNING] Could not open %s. Starting with an empty playlist.\n",
+               MUSIC_FILE);
+        return;
+    }
+
+    /* Read the file line by line */
+    while (fgets(line, sizeof(line), fp) != NULL) {
+
+        /* Remove trailing newline character if present */
+        line[strcspn(line, "\n")] = '\0';
+
+        /* Skip blank lines */
+        if (strlen(line) == 0) continue;
+
+        /* Allocate memory for the new song node */
+        newNode = (Song *)malloc(sizeof(Song));
+        if (newNode == NULL) {
+            printf("[ERROR] Memory allocation failed while loading playlist.\n");
+            fclose(fp);
+            return;
+        }
+
+        /* --- Parse the three fields using strtok --- */
+
+        /* Field 1: Song title (everything before the first comma) */
+        token = strtok(line, ",");
+        if (token == NULL) { free(newNode); continue; }
+        strncpy(newNode->title, token, MAX_TITLE - 1);
+        newNode->title[MAX_TITLE - 1] = '\0';
+
+        /* Field 2: Artist name */
+        token = strtok(NULL, ",");
+        if (token == NULL) { free(newNode); continue; }
+        strncpy(newNode->artist, token, MAX_ARTIST - 1);
+        newNode->artist[MAX_ARTIST - 1] = '\0';
+
+        /* Field 3: Duration in milliseconds */
+        token = strtok(NULL, ",");
+        if (token == NULL) { free(newNode); continue; }
+        newNode->duration = atoi(token);
+
+        /* Initialise the node's pointers */
+        newNode->next = NULL;
+        newNode->prev = NULL;
+
+        /* --- Append node to the end of the doubly linked list --- */
+        if (head == NULL) {
+            /* First node: head and tail both point here */
+            head = newNode;
+            tail = newNode;
+        } else {
+            /* Link the new node after the current tail */
+            tail->next    = newNode;
+            newNode->prev = tail;
+            tail          = newNode;  /* Advance the tail pointer */
+        }
+    }
+
+    fclose(fp);
+    printf("[INFO] Playlist loaded successfully from %s.\n", MUSIC_FILE);
+}
+
+/* ============================================================
+ *  viewPlaylist()
+ *
+ *  Traverses the entire linked list from head to tail and
+ *  prints each song's number, title, artist, and duration
+ *  (converted from ms to mm:ss format for readability).
+ * ============================================================ */
+void viewPlaylist(void) {
+    Song *ptr;   /* Traversal pointer */
+    int   count = 1;
+    int   mins, secs;
+
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    printf("\n========================================\n");
+    printf("            Current Playlist            \n");
+    printf("========================================\n");
+
+    /* Walk from head to the last node */
+    ptr = head;
+    while (ptr != NULL) {
+        /* Convert duration from ms to minutes and seconds */
+        mins = (ptr->duration / 1000) / 60;
+        secs = (ptr->duration / 1000) % 60;
+
+        printf("  %2d. %-40s | %-25s | %d:%02d\n",
+               count, ptr->title, ptr->artist, mins, secs);
+        count++;
+        ptr = ptr->next;
+    }
+    printf("========================================\n");
+    printf("  Total songs: %d\n", count - 1);
+}
+
+/* ============================================================
+ *  simulatePlayback()
+ *
+ *  Simulates playing a single song.
+ *  - Prints the song title and artist.
+ *  - Prints one '.' every 500 ms of simulated playback time,
+ *    flushing stdout after each dot so they appear gradually.
+ *  - Each dot represents 0.50 seconds; the real sleep is
+ *    shortened (usleep uses microseconds) for demo purposes.
+ *
+ *  Parameter:
+ *    s - pointer to the Song node to "play"
+ * ============================================================ */
+void simulatePlayback(Song *s) {
+    int totalDots;    /* Number of dots to print (duration / 500 ms) */
+    int i;
+    double elapsed;
+
+    /* Number of half-second intervals in the song */
+    totalDots = s->duration / 500;
+
+    printf("\n  Now Playing: \"%s\" by %s\n", s->title, s->artist);
+    printf("  ");
+
+    /* Print dots one at a time, each after a real 50ms pause
+     * (scaled down 10x so the demo doesn't take the full song length). */
+    for (i = 1; i <= totalDots; i++) {
+        elapsed = i * 0.50;
+        /* Move cursor back to start of playback line and reprint */
+        printf("\r  Title: %s | Artist: %s | Time elapsed: %.2f secs ",
+               s->title, s->artist, elapsed);
+
+        /* Print dots proportional to elapsed time */
+        int d;
+        for (d = 0; d < i; d++) {
+            printf(".");
+        }
+
+        fflush(stdout);          /* Ensure dots appear immediately     */
+        usleep(50000);           /* 50 ms real time (scaled from 500ms) */
+    }
+    printf("\n");
+}
+
+/* ============================================================
+ *  playFullPlaylist()
+ *
+ *  Iterates through every node from head to tail, calling
+ *  simulatePlayback() on each song in order.
+ * ============================================================ */
+void playFullPlaylist(void) {
+    Song *ptr;
+
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    printf("\n--- Playing Full Playlist ---\n");
+
+    ptr = head;
+    while (ptr != NULL) {
+        simulatePlayback(ptr);
+        /* Advance current so Play Next / Previous stay in sync */
+        current = ptr;
+        ptr     = ptr->next;
+    }
+
+    printf("\n--- End of Playlist ---\n");
+}
+
+/* ============================================================
+ *  addSong()
+ *
+ *  Prompts the user for a title, artist, and duration, then
+ *  dynamically allocates a new Song node and appends it to
+ *  the end of the linked list.
+ * ============================================================ */
+void addSong(void) {
+    Song *newNode;
+    Song *ptr;
+    char  durationStr[20];
+
+    /* Allocate memory for the new song */
+    newNode = (Song *)malloc(sizeof(Song));
+    if (newNode == NULL) {
+        printf("[ERROR] Memory allocation failed.\n");
+        return;
+    }
+
+    /* --- Gather song information from the user --- */
+    printf("\n--- Add a New Song ---\n");
+
+    printf("  Enter song title  : ");
+    fgets(newNode->title, MAX_TITLE, stdin);
+    newNode->title[strcspn(newNode->title, "\n")] = '\0';
+
+    printf("  Enter artist name : ");
+    fgets(newNode->artist, MAX_ARTIST, stdin);
+    newNode->artist[strcspn(newNode->artist, "\n")] = '\0';
+
+    printf("  Enter duration (ms): ");
+    fgets(durationStr, sizeof(durationStr), stdin);
+    newNode->duration = atoi(durationStr);
+
+    /* Initialise the node's link pointers */
+    newNode->next = NULL;
+    newNode->prev = NULL;
+
+    /* --- Append to the end of the list --- */
+    if (head == NULL) {
+        /* List was empty: this node becomes the head */
+        head = newNode;
+    } else {
+        /* Traverse to the last node */
+        ptr = head;
+        while (ptr->next != NULL) {
+            ptr = ptr->next;
+        }
+        /* Link new node after the found tail */
+        ptr->next     = newNode;
+        newNode->prev = ptr;
+    }
+
+    printf("\n[SUCCESS] \"%s\" by %s has been added to the playlist!\n",
+           newNode->title, newNode->artist);
+}
+
+/* ============================================================
+ *  playFirstSong()
+ *
+ *  Sets the current pointer to head and plays only that song.
+ *  After calling this, Play Next will move to the second song.
+ * ============================================================ */
+void playFirstSong(void) {
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    current = head;   /* Reset current position to the beginning */
+    printf("\n--- Playing First Song ---\n");
+    simulatePlayback(current);
+}
+
+/* ============================================================
+ *  playNextSong()
+ *
+ *  Advances current to the next node and plays it.
+ *  If no song has been played yet (current == NULL), defaults
+ *  to the first song.  If already at the end, wraps around
+ *  to the head.
+ * ============================================================ */
+void playNextSong(void) {
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    /* If nothing has been played yet, start from the beginning */
+    if (current == NULL) {
+        current = head;
+    } else if (current->next != NULL) {
+        current = current->next;   /* Advance one step forward */
+    } else {
+        /* Wrap around to the first song */
+        printf("\n[INFO] End of playlist reached. Wrapping to the first song.\n");
+        current = head;
+    }
+
+    printf("\n--- Playing Next Song ---\n");
+    simulatePlayback(current);
+}
+
+/* ============================================================
+ *  playPreviousSong()
+ *
+ *  Moves current to the previous node and plays it.
+ *  If already at the head, wraps around to the last song.
+ * ============================================================ */
+void playPreviousSong(void) {
+    Song *ptr;
+
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    if (current == NULL || current == head) {
+        /* Wrap to the last song in the list */
+        printf("\n[INFO] At the beginning of playlist. Wrapping to the last song.\n");
+        ptr = head;
+        while (ptr->next != NULL) {
+            ptr = ptr->next;
+        }
+        current = ptr;
+    } else {
+        /* Move one step backward using the prev pointer */
+        current = current->prev;
+    }
+
+    printf("\n--- Playing Previous Song ---\n");
+    simulatePlayback(current);
+}
+
+/* ============================================================
+ *  playRandomSong()  [Extra Credit]
+ *
+ *  Counts the total number of songs in the list, picks a
+ *  random index, traverses to that node, and plays it.
+ *  Also updates current so Play Next/Previous stay coherent.
+ * ============================================================ */
+void playRandomSong(void) {
+    Song *ptr;
+    int   count = 0;
+    int   randomIndex;
+    int   i;
+
+    if (head == NULL) {
+        printf("\n[INFO] The playlist is empty.\n");
+        return;
+    }
+
+    /* Count nodes in the list */
+    ptr = head;
+    while (ptr != NULL) {
+        count++;
+        ptr = ptr->next;
+    }
+
+    /* Pick a random index in range [0, count-1] */
+    randomIndex = rand() % count;
+
+    /* Traverse to the randomly selected node */
+    ptr = head;
+    for (i = 0; i < randomIndex; i++) {
+        ptr = ptr->next;
+    }
+
+    current = ptr;   /* Update current so navigation stays in sync */
+
+    printf("\n--- Playing Random Song (song #%d) ---\n", randomIndex + 1);
+    simulatePlayback(current);
+}
+
+/* ============================================================
+ *  freePlaylist()
+ *
+ *  Walks the entire linked list and calls free() on every
+ *  node to prevent memory leaks before the program exits.
+ * ============================================================ */
+void freePlaylist(void) {
+    Song *ptr  = head;
+    Song *next = NULL;
+
+    while (ptr != NULL) {
+        next = ptr->next;   /* Save the next pointer before freeing */
+        free(ptr);
+        ptr = next;
+    }
+
+    head    = NULL;
+    current = NULL;
+}
