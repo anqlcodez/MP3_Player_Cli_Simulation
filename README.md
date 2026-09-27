@@ -1,4 +1,4 @@
-# MP3 Player CLI (Simulation)
+# MP3 Player CLI
 
 A menu-driven MP3 player simulation written in C, built around a custom
 doubly linked list to manage a playlist. This project focuses on manual
